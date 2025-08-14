@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart' as classic;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,15 +41,12 @@ class ClassicTransportService implements TransportService {
     if (!Platform.isAndroid) {
       throw UnsupportedError('Classic not supported on this platform');
     }
-    final prefs = await SharedPreferences.getInstance();
-    final pin = prefs.getString(AppPrefsKeys.classicPinCode) ?? '1234';
-
     // Try pairing if not bonded
     final bonded = await _adapter!.getBondedDevices();
     final isBonded = bonded.any((d) => d.address == device.address || d.address == device.id);
     if (!isBonded) {
-      // Note: flutter_bluetooth_serial pairing API may vary; attempt to bond
-      await _adapter!.bondDeviceAtAddress(device.address ?? device.id, pin: pin);
+      // Pair via system dialog (PIN 1234/0000 shown on module); API opens settings if needed
+      await _adapter!.bondDeviceAtAddress(device.address ?? device.id);
     }
 
     final address = device.address ?? device.id;
