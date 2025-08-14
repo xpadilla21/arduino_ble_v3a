@@ -1,0 +1,1 @@
+// Reemplazado por `providers/app_state.dart` en v3a

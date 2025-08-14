@@ -1,0 +1,161 @@
+// bluetooth_security.dart
+// Funciones de seguridad BLE
+// Version: v2c - Seguridad y encriptación
+
+import 'dart:convert';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
+
+class BluetoothSecurity {
+  static final BluetoothSecurity _instance = BluetoothSecurity._internal();
+  factory BluetoothSecurity() => _instance;
+  BluetoothSecurity._internal();
+
+  // Lista de dispositivos autorizados (whitelist)
+  final Set<String> _authorizedDevices = {};
+  
+  // Estado de bonding/pairing
+  final Map<String, DateTime> _pairedDevices = {};
+  
+  // Claves de sesión
+  final Map<String, String> _sessionKeys = {};
+  
+  /// Agregar dispositivo a la whitelist
+  void addAuthorizedDevice(String deviceAddress, String deviceName) {
+    _authorizedDevices.add(deviceAddress);
+    _pairedDevices[deviceAddress] = DateTime.now();
+  }
+  
+  /// Verificar si un dispositivo está autorizado
+  bool isDeviceAuthorized(String deviceAddress) {
+    return _authorizedDevices.contains(deviceAddress);
+  }
+  
+  /// Generar passkey de 6 dígitos
+  String generatePasskey() {
+    final random = Random.secure();
+    return (100000 + random.nextInt(900000)).toString();
+  }
+  
+  /// Verificar passkey
+  bool verifyPasskey(String inputPasskey, String expectedPasskey) {
+    return inputPasskey == expectedPasskey;
+  }
+  
+  /// Generar clave de sesión
+  String generateSessionKey(String deviceAddress) {
+    final random = Random.secure();
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final keyData = '$deviceAddress$timestamp${random.nextInt(999999)}';
+    
+    var bytes = utf8.encode(keyData);
+    var digest = sha256.convert(bytes);
+    final sessionKey = digest.toString().substring(0, 32); // 32 caracteres
+    
+    _sessionKeys[deviceAddress] = sessionKey;
+    return sessionKey;
+  }
+  
+  /// Encriptar comando (simple XOR con clave de sesión)
+  String encryptCommand(String command, String deviceAddress) {
+    if (!_sessionKeys.containsKey(deviceAddress)) {
+      return command; // Sin encriptación si no hay clave
+    }
+    
+    final key = _sessionKeys[deviceAddress]!;
+    final commandBytes = utf8.encode(command);
+    final keyBytes = utf8.encode(key);
+    
+    final encryptedBytes = <int>[];
+    for (int i = 0; i < commandBytes.length; i++) {
+      encryptedBytes.add(commandBytes[i] ^ keyBytes[i % keyBytes.length]);
+    }
+    
+    return base64.encode(encryptedBytes);
+  }
+  
+  /// Desencriptar respuesta
+  String decryptResponse(String encryptedResponse, String deviceAddress) {
+    if (!_sessionKeys.containsKey(deviceAddress)) {
+      return encryptedResponse; // Sin desencriptación si no hay clave
+    }
+    
+    try {
+      final key = _sessionKeys[deviceAddress]!;
+      final encryptedBytes = base64.decode(encryptedResponse);
+      final keyBytes = utf8.encode(key);
+      
+      final decryptedBytes = <int>[];
+      for (int i = 0; i < encryptedBytes.length; i++) {
+        decryptedBytes.add(encryptedBytes[i] ^ keyBytes[i % keyBytes.length]);
+      }
+      
+      return utf8.decode(decryptedBytes);
+    } catch (e) {
+      return encryptedResponse; // Devolver original si falla la desencriptación
+    }
+  }
+  
+  /// Verificar integridad del dispositivo
+  bool verifyDeviceIntegrity(String deviceAddress, String challengeResponse) {
+    // Implementación básica - en producción usaría certificados
+    if (!_authorizedDevices.contains(deviceAddress)) {
+      return false;
+    }
+    
+    // Verificar que la respuesta al challenge es correcta
+    final expectedResponse = _generateChallengeResponse(deviceAddress);
+    return challengeResponse == expectedResponse;
+  }
+  
+  /// Generar respuesta esperada al challenge
+  String _generateChallengeResponse(String deviceAddress) {
+    final challengeData = '$deviceAddress${DateTime.now().day}';
+    var bytes = utf8.encode(challengeData);
+    var digest = md5.convert(bytes);
+    return digest.toString().substring(0, 16);
+  }
+  
+  /// Obtener estadísticas de seguridad
+  Map<String, dynamic> getSecurityStats() {
+    return {
+      'authorized_devices': _authorizedDevices.length,
+      'paired_devices': _pairedDevices.length,
+      'active_sessions': _sessionKeys.length,
+      'last_pairing': _pairedDevices.isNotEmpty 
+          ? _pairedDevices.values.reduce((a, b) => a.isAfter(b) ? a : b)
+          : null,
+    };
+  }
+  
+  /// Limpiar sesiones expiradas
+  void cleanupExpiredSessions() {
+    final now = DateTime.now();
+    final expiredDevices = <String>[];
+    
+    _pairedDevices.forEach((device, pairTime) {
+      if (now.difference(pairTime).inHours > 24) { // Expirar después de 24 horas
+        expiredDevices.add(device);
+      }
+    });
+    
+    for (String device in expiredDevices) {
+      _pairedDevices.remove(device);
+      _sessionKeys.remove(device);
+    }
+  }
+  
+  /// Revocar acceso a un dispositivo
+  void revokeDevice(String deviceAddress) {
+    _authorizedDevices.remove(deviceAddress);
+    _pairedDevices.remove(deviceAddress);
+    _sessionKeys.remove(deviceAddress);
+  }
+  
+  /// Limpiar todos los datos de seguridad
+  void clearAllSecurityData() {
+    _authorizedDevices.clear();
+    _pairedDevices.clear();
+    _sessionKeys.clear();
+  }
+}

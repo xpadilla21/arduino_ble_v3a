@@ -1,0 +1,4 @@
+// Fix for flutter_bluetooth_serial namespace
+android {
+    namespace 'flutter_bluetooth_serial'
+}
